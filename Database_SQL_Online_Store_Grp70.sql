@@ -124,6 +124,8 @@ INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (2, 1, 13);
 INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (1, 2, 5);
 INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (2, 3, 11);
 INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (1, 1, 14);
+INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (6, 4, 17);
+INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (3, 4, 20);
 
 create table Payment (
 	Payment_Id int NOT NULL AUTO_INCREMENT,
@@ -140,6 +142,7 @@ create table Payment (
 create table Billed_Items(
 	Payment_ID int not null,
     Prod_ID int ,
+    Prod_Qty int , 
     foreign key(Payment_ID) references Payment(Payment_ID),
     foreign key(Prod_ID) references Product(Prod_ID)
 );
@@ -149,7 +152,7 @@ create trigger on_payment
 before insert on Payment
 for each row
 begin
-set new.Amount = (select sum(Prod_Price) from Shopping_Cart, Product where Shopping_Cart.Cust_ID = new.Cust_ID and Shopping_Cart.Prod_ID = Product.Prod_ID);
+set new.Amount = (select sum(Prod_Price * Quantity) from Shopping_Cart, Product where Shopping_Cart.Cust_ID = new.Cust_ID and Shopping_Cart.Prod_ID = Product.Prod_ID);
 end//
 delimiter ;
 
@@ -172,8 +175,8 @@ create trigger add_to_billed
 after insert on Payment
 for each row
 begin
-insert into Billed_Items( Payment_ID, Prod_ID)
-select Payment_ID , Prod_ID
+insert into Billed_Items( Payment_ID, Prod_ID, Prod_Qty)
+select Payment_ID , Prod_ID, Quantity
 from Shopping_Cart, Payment
 where Shopping_Cart.Cust_ID = Payment.Cust_ID and Payment.Payment_ID = new.Payment_ID;
 end//
@@ -196,6 +199,9 @@ delimiter ;
 
 INSERT INTO Payment (Payment_Mode, Cust_ID, Shipping_Address, Purchase_Date) VALUES ('Cash on delivery', 1,'2207-LIG', "2020-11-20");
 INSERT INTO Payment (Payment_Mode, Cust_ID, Shipping_Address, Purchase_Date) VALUES ('Online', 2,'2208-Parker Stree',"2020-11-13");
+INSERT INTO Shopping_Cart(Quantity, Cust_ID, Prod_ID) VALUES (5, 2, 18);
+INSERT INTO Payment (Payment_Mode, Cust_ID, Shipping_Address, Purchase_Date) VALUES ('Cash on delivery', 2,'2208-Parker Stree',"2020-11-25");
+INSERT INTO Payment (Payment_Mode, Cust_ID, Shipping_Address, Purchase_Date) VALUES ('Online', 4,'1960 Avenu Estate',"2020-11-13");
 -- Insert into Billed_Items values((select Payment.Payment_ID from Payment order by Payment_ID desc limit 1), 5 );
 -- Insert into Billed_Items values((select Payment.Payment_ID from Payment order by Payment_ID desc limit 1), 2 );
 -- Insert into Billed_Items values((select Payment.Payment_ID from Payment order by Payment_ID desc limit 1), 9 );
@@ -253,9 +259,11 @@ delimiter ;
 -- drop trigger after_order_delivered;
 
 insert into Stock_Order(Prod_ID,Item_Qty) values(2, 50);
-insert into Stock_Order(Prod_ID,Item_Qty) values(5, 10);
+insert into Stock_Order(Prod_ID,Item_Qty) values(9, 10);
 insert into Stock_Order(Prod_ID,Item_Qty) values(8, 6);
 insert into Stock_Order(Prod_ID,Item_Qty) values(18, 50); 
+insert into Stock_Order(Prod_ID,Item_Qty) values(13, 5);
+insert into Stock_Order(Prod_ID,Item_Qty) values(3, 40);
 
 update Stock_Order 
 set Order_Status = 'Delivered', Sup_by = '2'
@@ -269,6 +277,13 @@ update Stock_Order
 set Order_Status = 'Delivered', Sup_by = '4'
 where Order_ID = 3;
 
+update Stock_Order 
+set Order_Status = 'Delivered', Sup_by = '2'
+where Order_ID = 5;
+
+update Stock_Order 
+set Order_Status = 'Delivered', Sup_by = '5'
+where Order_ID = 6;
 
 
 select * from Customer;
@@ -416,10 +431,11 @@ where p.Prod_ID = b.Prod_ID and b.Cat_ID = c.Cat_ID and c.Cat_Name = Category() 
 
 -- USERS ------------------------------------------------------------------------------
 
-CREATE USER IF NOT EXISTS 'Customer'@'localhost' IDENTIFIED BY '0000';
+CREATE USER IF NOT EXISTS 
+'Customer'@'localhost' IDENTIFIED BY '0000',
 'Employee'@'localhost' IDENTIFIED BY '0001',
 'Supplier'@'localhost' IDENTIFIED BY '0002';
-SELECT host, user FROM mysql.user;
+-- SELECT host, user FROM mysql.user;
 
 -- GRANTS
 -- Customer ---------------------------------------------------------------------------
@@ -621,14 +637,14 @@ SHOW GRANTS FOR Supplier@localhost;
 			select Cat_ID from Category where Cat_Name='Electronics'
         )
     );
--- Find the suppliers who supplied products under category 'Men's Clothing.'
+-- 2) Find the suppliers who supplied products under category 'Men's Clothing.'
 			select Sup_by from Stock_Order where Stock_Order.Prod_ID in(
 			select Prod_ID from belongsTo where Cat_ID=(
             select Cat_ID from Category where Cat_Name="Men's Clothing"));
                 
 -- 3) Display the total sale of Products in each category
-	select sum(temp.PP) as total, Cat_ID from(
-		select (Billed_Items.Prod_ID) as 'Product Sold' , belongsTo.Cat_ID, (Product.Prod_Price) as 'PP' 
+	select sum(temp.PP * Prod_Qty) as total, Cat_ID from(
+		select (Billed_Items.Prod_ID) as 'Product Sold' , belongsTo.Cat_ID, (Product.Prod_Price) as 'PP', Billed_Items.Prod_Qty 
         from Billed_Items, belongsTo,Product
         where Billed_Items.Prod_ID = belongsTo.Prod_ID and Product.Prod_ID = Billed_Items.Prod_ID
         order by Cat_ID) as temp
@@ -636,11 +652,11 @@ SHOW GRANTS FOR Supplier@localhost;
 	order by Cat_ID;
      
 -- 4) To create a view of the Customer who have ordered max quantity of items from the store.
-	select s.Cust_ID ,sum(Quantity) as Qty, Cust_Name, Phone 
-    from Shopping_Cart s, Customer c 
-    where s.Cust_ID = c.Cust_ID 
-    group by s.Cust_ID 
-    order by sum(Quantity) desc; 
+    select Payment.Cust_ID, sum(Prod_Qty), Cust_Name, Phone
+    from Billed_Items , Customer, Payment
+    where Billed_Items.Payment_ID = Payment.Payment_ID and Payment.Cust_ID = Customer.Cust_ID
+    group by Payment.Cust_ID
+    order by sum(Prod_Qty) desc;
     
 -- 5) Find details of all employees who are managing electronics
 	select Emp_ID, e.Cat_ID, Emp_Name, Emp_Address 
@@ -679,10 +695,13 @@ SHOW GRANTS FOR Supplier@localhost;
 		select prod_name,prod_desc,prod_Img, Quantity*prod_price as cost from Product join Shopping_Cart where Shopping_Cart.Cust_ID=(
         select Cust_ID from Customer where Cust_Name like 'Anupam') and Product.Prod_ID = Shopping_Cart.Prod_ID;
         
--- 12) Identify the details of the Product which has been purchased in most quantity.
-		select prod_name,prod_desc,prod_price,prod_img from Product join (
-        select count(Prod_ID) as noOfTimes, Prod_ID from Billed_Items group by Prod_ID order by noOfTimes desc limit 1) as t1 
-        where Product.Prod_ID = t1.Prod_ID;
+-- 12) Identify the details of the Products depending on quantity sold.
+        select sum(Billed_Items.Prod_qty) as 'Quantity Sold' , Product.Prod_ID, Prod_Price , Prod_Name , Product.Prod_Qty, Prod_Desc , Prod_img
+        from Billed_Items, Product
+        where Billed_Items.Prod_ID = Product.Prod_ID 
+        group by Billed_Items.Prod_ID
+        order by sum(Billed_Items.Prod_qty) desc;
+        
         
 -- 13) Identify the minimum and maximum costing Products in the store.
 		select maxPrice,t1.prod_id as max_prod_id,minPrice,t2.prod_id as min_prod_id from (select prod_id,prod_name,prod_price as maxPrice from Product  order by prod_price desc limit 1)as t1 join (select
@@ -693,8 +712,9 @@ SHOW GRANTS FOR Supplier@localhost;
         from Payment 
         where Payment.Payment_ID in( select distinct(Payment_ID) 
         from Billed_Items) group by Cust_ID;
+        
 -- 15)  Find the suppliers who supplied Products under category 'Electronics.'
-			select Sup_by from Stock_Order where Stocke_Order.Prod_ID in(select Prod_ID from belongsTo where Cat_ID=(select Cat_ID from Category where Cat_Name='Electronics'));
+			select Sup_by from Stock_Order where Stock_Order.Prod_ID in(select Prod_ID from belongsTo where Cat_ID=(select Cat_ID from Category where Cat_Name='Electronics')) group by Sup_by;
 -- ----------------------------------------------------------------------------------------------------------------------
 -- Indexing Tables:
 -- 1) Indexing on Customer table
